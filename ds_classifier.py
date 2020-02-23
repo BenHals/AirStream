@@ -179,8 +179,8 @@ class DSClassifier:
         """
         # print(f"Masekd in PF: {masked}")
         # print(f"passing, X: {X}, y: {y}, m: {masked}")
-        # if masked:
-        #     return
+        if masked:
+            return
         if self.classes is None and classes is not None:
             self.classes = classes
         if y is not None:

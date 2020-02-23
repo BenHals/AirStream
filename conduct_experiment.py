@@ -157,6 +157,18 @@ def create_classifier(run_options, supplementary_info, sp_info):
         sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
         classifier = SimpleBaseline(classifer_type = 'norm', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
+    elif run_options.ct == 'normAVG':
+        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
+        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
+        classifier = SimpleBaseline(classifer_type = 'normAVG', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
+    elif run_options.ct == 'normSC':
+        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
+        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
+        classifier = SimpleBaseline(classifer_type = 'normSC', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
+    elif run_options.ct == 'normSCG':
+        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
+        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
+        classifier = SimpleBaseline(classifer_type = 'normSCG', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
     elif run_options.ct == 'temporal':
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
         classifier = SimpleBaseline(classifer_type = 'temporal', x_locs = [], y_loc = None, spacial_pattern = sp_info, bins=bins)
@@ -640,6 +652,8 @@ if __name__ == "__main__":
     parser.add_argument("-bp", type=float, default = 0.02, help="Broken Proportion")
     parser.add_argument("-bl", type=int, default = 75, help="Broken length")
     parser.add_argument("-bcs", nargs="*", type=str, default = ["all"], help="BT sustain sensitivity")
+    parser.add_argument("-bco", action='store_true', help="only run baselines")
+    parser.add_argument("-rsp", action='store_true', help="remake spacial pattern")
     # parser.add_argument("-lf", default=f"experiment-{time.time()}.log", type=str, help="The name of the file to log to")
 
     args = parser.parse_args()
@@ -658,6 +672,8 @@ if __name__ == "__main__":
     seeds = args.sds
     broken_proportion = args.bp
     broken_length = args.bl
+    bl_only = args.bco
+    remake_spacial_pattern = args.rsp
     if args.dbl:
         logging.getLogger().setLevel(logging.DEBUG)
     # Params for fsm_classifier opposite of commandline
@@ -671,7 +687,7 @@ if __name__ == "__main__":
     if args.app:
         output_dir_base = str(O_path / 'experiments' / real_world_dataset_name)
         stream_files = get_stream_files(str(output_dir_base))
-
+        np.random.shuffle(stream_files)
         for stream_file in stream_files:
 
             stream_file = pathlib.Path(stream_file)
@@ -694,15 +710,15 @@ if __name__ == "__main__":
             time_index_fn = output_dir / f"time_index.pickle"
             dist_fn = output_dir / f"dist.json"
 
-            experiments_dir = pathlib.Path.cwd() / 'experiments' / real_world_dataset_name
-            aux_feature_preds_fn = output_dir_base / "aux_feature_preds.json"
+            experiments_dir = pathlib.Path(output_dir_base) / real_world_dataset_name
+            aux_feature_preds_fn = pathlib.Path(output_dir_base) / "aux_feature_preds.json"
 
             aux_feature_predictions = json.load(aux_feature_preds_fn.open())
             aux_info = pd.read_csv(aux_fn)
             results_timestamps = pd.read_pickle(time_index_fn)
 
             experiment_results_fn = output_dir / f"dataset_target_results.json"
-            dataset_results_fn = output_dir_base / f"dataset_results.json"
+            dataset_results_fn = pathlib.Path(output_dir_base) / f"dataset_results.json"
 
 
 
@@ -715,6 +731,21 @@ if __name__ == "__main__":
                 {
                     "name": "norm",
                     "ct": "norm",
+                    "train_only_period": 0
+                },
+                {
+                    "name": "normAVG",
+                    "ct": "normAVG",
+                    "train_only_period": 0
+                },
+                {
+                    "name": "normSC",
+                    "ct": "normSC",
+                    "train_only_period": 0
+                },
+                {
+                    "name": "normSCG",
+                    "ct": "normSCG",
                     "train_only_period": 0
                 },
                 {
@@ -747,14 +778,21 @@ if __name__ == "__main__":
                 fn = output_dir / f"{b['run_options'].filename}.csv"
                 mg = output_dir / f"{b['run_options'].filename.split('.')[0]}-merges.pickle"
                 info = output_dir / f"{'.'.join(b['run_options'].filename.split('.')[:-1]) if '.' in b['run_options'].filename else b['run_options'].filename}-run_stats.txt"
-                b['results'] = extract_results_from_csv(fn, mg, info, stream_file.parent, True, aux_info, results_timestamps, aux_feature_predictions)
-                print(baselines)
-                if b['results'] is None:
+                redo = False
+                try:
+                    b['results'] = extract_results_from_csv(fn, mg, info, stream_file.parent, True, aux_info, results_timestamps, aux_feature_predictions)
+                except:
+                    redo = True
+                if 'results' not in b  or b['results'] is None:
+                    redo = True
+                if redo:
                     fn, mg, info = run_stream_with_options(b['run_options'], stream_file, stream_file.parent, load_arff= False, train_only_period = b['train_only_period'])
                     b['results'] = extract_results_from_csv(fn, mg, info, stream_file.parent, True, aux_info, results_timestamps, aux_feature_predictions)
                     results_dump_path = stream_file.parent / f"{b['name']}-results.json"
                     with results_dump_path.open('w') as f:
-                        json.dump(r, f)
+                        json.dump(b['results'], f)
+            if bl_only:
+                continue
             gridsearch_args = ['cl', 'an', 'w','sdp', 'msm', 'atl', 'atp', 'bs', 'csd', 'css']
             gridsearch_arg_combos = product(*[vars(args)[x] for x in gridsearch_args])
             results = gridsearch_experiment(list(gridsearch_arg_combos), gridsearch_args, output_dir, header, f'sys-{args.ct}', backtrack, proactive_sensitivity, args.ct, train_only_period, real_world_dataset_name, real_world_target_index, aux_feature_predictions, seed)
@@ -866,7 +904,7 @@ if __name__ == "__main__":
                 output_dir_base = str(O_path / 'experiments')
                 output_dir, data_fn, aux_fn, info_fn, time_index_fn = create_dataset(dir_path / "RawData" / real_world_dataset_name, real_world_dataset_name, real_world_target_index, output_dir_base, direction=direction, seed = seed, broken_proportion = broken_proportion, broken_length = broken_length)
 
-                aux_feature_path = pathlib.Path.cwd() / 'experiments' / real_world_dataset_name / "aux_feature_preds.json"
+                aux_feature_path = pathlib.Path(output_dir_base) / real_world_dataset_name / "aux_feature_preds.json"
                 try:
                     aux_feature_predictions = json.load(aux_feature_path.open())
                 except:
@@ -876,7 +914,7 @@ if __name__ == "__main__":
 
 
                 experiment_results_fn = output_dir / f"dataset_target_results.json"
-                dataset_results_fn = pathlib.Path.cwd() / 'experiments' / real_world_dataset_name / f"dataset_results.json"
+                dataset_results_fn = pathlib.Path(output_dir_base) / real_world_dataset_name / f"dataset_results.json"
 
                 existing_experiment_results = {}
                 existing_dataset_results = {}
@@ -900,6 +938,21 @@ if __name__ == "__main__":
                     {
                         "name": "norm",
                         "ct": "norm",
+                        "train_only_period": 0
+                    },
+                    {
+                        "name": "normAVG",
+                        "ct": "normAVG",
+                        "train_only_period": 0
+                    },
+                    {
+                        "name": "normSC",
+                        "ct": "normSC",
+                        "train_only_period": 0
+                    },
+                    {
+                        "name": "normSCG",
+                        "ct": "normSCG",
                         "train_only_period": 0
                     },
                     {
