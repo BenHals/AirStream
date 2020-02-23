@@ -153,18 +153,6 @@ def create_classifier(run_options, supplementary_info, sp_info):
         sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
         classifier = SimpleBaseline(classifer_type = 'linear', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
-    elif run_options.ct == 'norm':
-        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
-        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
-        classifier = SimpleBaseline(classifer_type = 'norm', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
-    elif run_options.ct == 'normAVG':
-        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
-        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
-        classifier = SimpleBaseline(classifer_type = 'normAVG', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
-    elif run_options.ct == 'normSC':
-        sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
-        bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
-        classifier = SimpleBaseline(classifer_type = 'normSC', x_locs = sensor_locs[0], y_loc = sensor_locs[1], spacial_pattern = sp_info, bins=bins)
     elif run_options.ct == 'normSCG':
         sensor_locs = [None, None] if 'sensors' not in supplementary_info else supplementary_info['sensors']
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
@@ -181,18 +169,6 @@ def create_classifier(run_options, supplementary_info, sp_info):
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
         classifier = SimpleBaselineSKMF(classifer_type = 'arf', x_locs = [], y_loc = None, spacial_pattern = sp_info, bins = bins)
     else:
-        # classifier = FSMClassifier(learner=TS_HoeffdingTree,
-        #                             concept_limit=run_options.cl,
-        #                             allow_backtrack=run_options.backtrack,
-        #                             allow_proactive_sensitivity = run_options.proactive_sensitivity,
-        #                             window=run_options.window,
-        #                             min_proactive_stdev = run_options.sdp,
-        #                             max_sensitivity_multiplier = run_options.msm,
-        #                             alt_test_length = run_options.atl * run_options.atp,
-        #                             alt_test_period = run_options.atp,
-        #                             sensitivity = run_options.bs,
-        #                             conf_sensitivity_drift = run_options.csd,
-        #                             conf_sensitivity_sustain = run_options.css)
         classifier = DSClassifier(learner=TS_HoeffdingTree,
                                     window=run_options.window,
                                     alt_test_length = run_options.atl * run_options.atp,
@@ -272,23 +248,12 @@ def run_stream_with_options(run_options, stream_file, parent_dir, load_arff = Fa
     else:
         data = arff.loadarff(stream_file)
         stream_data = pd.DataFrame(data[0])
-        # for c_i,c in enumerate(stream_data.columns):
-        #     if pd.api.types.is_string_dtype(stream_data[c]):
-        #         print(f"Factoizing {c}")
-        #         print(pd.factorize(stream_data[c])[0].shape)
-        #         stream_data[c] = pd.factorize(stream_data[c])[0]
-    # stream_data = pd.read_csv(, header = 1 if run_options.header else None)
     stream_length = stream_data.shape[0]
 
-    # TESTING!!
-    # stream_length = min(25000, stream_length)
     mask = None
     if 'mask' in list(stream_data.columns):
         mask = list(stream_data['mask'])
         stream_data = stream_data.drop('mask', axis = 1)
-    # y_lag_col = list(stream_data.columns)[-2]
-    # y_lag = list(stream_data[y_lag_col])
-    # stream_data = stream_data.drop(y_lag_col, axis = 1)
     print(stream_data.head())
     print(mask[:20])
     datastream = DataStream(stream_data)
@@ -317,17 +282,11 @@ def run_stream_with_options(run_options, stream_file, parent_dir, load_arff = Fa
         masked_y = y if not mask_val else [-1]
         logging.debug(f"X: {X}")
         logging.debug(f"y: {y}")
-        # print(f"Conductor, X:{X}, y: {y}, my: {masked_y}, m: {mask_val}")
         # Predict returns a (N, 1) tensor, with N = Batch size.
         # We take the first value as the scalar prediction when N = 1.
-        # print(f"{ex}, {train_only_period}, {ex >= train_only_period}")
         if ex >= train_only_period:
             p = classifier.predict(X)[0]
             logging.debug(f"p: {p}")
-
-            # logging.debug(statistics.sliding_window)
-            # logging.debug(classifier.active_state.main_model_stats.sliding_window)
-            # logging.debug(statistics.sliding_window == classifier.active_state.main_model_stats.sliding_window)
 
             correctly_classified = statistics.add_observation(y, p)
             row = [ex, statistics.sliding_window_accuracy, 1 if correctly_classified else 0, p, y[0], statistics.get_accuracy()]
@@ -419,9 +378,6 @@ def gridsearch_experiment(gridsearch_arg_combos,gridsearch_args, directory, head
                 gs_args[x] = gsa[i]
             logging.debug(f"Called with args {gs_args}")
             print(f"Called with args {gs_args}")
-            # cl = args.cl
-            # alternatives_to_check = args.an
-            # window = args.w
             cl = gs_args['cl']
             alternatives_to_check = gs_args['an']
             window = gs_args['w']
@@ -437,10 +393,6 @@ def gridsearch_experiment(gridsearch_arg_combos,gridsearch_args, directory, head
             filename = f"{'.'.join(base_fn.split('.')[:-1]) if '.' in base_fn else base_fn}-{'-'.join(['_'.join([n, str(gs_args[n]).replace('.', '#')]) for n in gridsearch_args])}-{backtrack}-{proactive_sensitivity}-{train_only_period}"
             run_options = RunOptions(str(directory), header, filename, backtrack, proactive_sensitivity, cl, alternatives_to_check, window, sd_prior, max_sensitivity_multiplier, atl, atp, bs, csd, css, classifier_type, seed)
             logging.basicConfig(level=logging.INFO, filename= str(stream_file.parent /f"{filename}-{time.time()}.log"), filemode='w')
-            # if run_options.filename is None:
-            #     run_options = run_options._replace(filename=)
-
-            # run_experiment_with_options(run_options)
             fn, mg, info = run_stream_with_options(run_options, stream_file, stream_file.parent, load_arff= '.ARFF' in str(stream_file), train_only_period = train_only_period)
             r = extract_results_from_csv(fn, mg, info, stream_file.parent, True, aux_info, results_timestamps, aux_feature_predictions)
             results[json.dumps({**run_options._asdict(), "dataset_name": real_world_dataset_name, "dataset_target_index": real_world_dataset_index})] = r
@@ -450,7 +402,6 @@ def gridsearch_experiment(gridsearch_arg_combos,gridsearch_args, directory, head
     return results
 
 def link(results, aux_info, results_timestamps, aux_feature_predictions, parent):
-    # timestamps = list(results_timestamps.values)[-results.shape[0]:]
     timestamps = results_timestamps.iloc[-results.shape[0]:]
     print(timestamps)
     print(aux_info['date_time'])
@@ -485,12 +436,7 @@ def link(results, aux_info, results_timestamps, aux_feature_predictions, parent)
 
             for i in range(3):
                 model = sklearn.ensemble.RandomForestClassifier(n_estimators = 10)
-                # model = sklearn.svm.SVC(gamma='auto')
-                # model = sklearn.naive_bayes.GaussianNB()
                 dummy = sklearn.dummy.DummyClassifier(strategy = "prior")
-                # y = pd.qcut(pred[test_feature], 10, labels=False).values
-                # print(x)
-                # print(y)
                 try:
                     dummy_score = sklearn.model_selection.cross_val_score(dummy, x, y, scoring='accuracy', cv = 5)
                     model_score = sklearn.model_selection.cross_val_score(model, x, y, scoring='accuracy', cv = 5)
@@ -501,8 +447,6 @@ def link(results, aux_info, results_timestamps, aux_feature_predictions, parent)
                 model_scores.append(np.mean(model_score))
             dummy_score = np.mean(dummy_scores)
             model_score = np.mean(model_scores)
-            # print(f"Dummy score: {dummy_score}")
-            # print(f"model score: {model_score}")
             dummy_increase = model_score - dummy_score
             print(f"Feature: {test_feature}, using state gave increase of {dummy_increase} in prediction accuracy")
             print(f"From {dummy_score} to {model_score} accuracy")
@@ -600,21 +544,12 @@ def test_aux_feature_prediction(data_fn, aux_fn):
         y = aux_dataset["y"].values
         x = aux_dataset[list(dataset.drop("y", axis = 1).columns)].values
         print(aux_dataset[list(dataset.columns)].columns)
-        # print(x)
-        # print(y)
-        # print(x.shape)
-        # print(y.shape)
-        # y = pd.qcut(aux[aux_col], 4, labels=False, duplicates="drop").values[1:]
-        # x = aux_dataset.values
         model_scores = []
         for i in range(3):
             model = sklearn.ensemble.RandomForestClassifier(n_estimators = 10)
             scores = sklearn.model_selection.cross_val_score(model, x, y, scoring='accuracy', cv = 5)
-            # print(scores)
             model_scores.append(np.mean(scores))
         model_score = np.mean(model_scores)
-        # print(model_score)
-        # exit()
         aux_feature_predictions[aux_col] = model_score
     return aux_feature_predictions
 
@@ -729,21 +664,6 @@ if __name__ == "__main__":
                     "train_only_period": 0
                 },
                 {
-                    "name": "norm",
-                    "ct": "norm",
-                    "train_only_period": 0
-                },
-                {
-                    "name": "normAVG",
-                    "ct": "normAVG",
-                    "train_only_period": 0
-                },
-                {
-                    "name": "normSC",
-                    "ct": "normSC",
-                    "train_only_period": 0
-                },
-                {
                     "name": "normSCG",
                     "ct": "normSCG",
                     "train_only_period": 0
@@ -837,12 +757,8 @@ if __name__ == "__main__":
                 try:
                     if experiment_results_fn.exists():
                         existing_experiment_results = json.load(experiment_results_fn.open())
-                    # if dataset_results_fn.exists():
-                    #     existing_dataset_results = json.load(dataset_results_fn.open())
                     with open(str(experiment_results_fn), 'w') as f:
                         json.dump({**existing_experiment_results, **results}, f)
-                    # with open(str(dataset_results_fn), 'w') as f:
-                    #     json.dump({**existing_dataset_results, **results}, f)
                     break
                 except:
                     time.sleep(1)
@@ -877,12 +793,8 @@ if __name__ == "__main__":
                 try:
                     if experiment_results_fn.exists():
                         existing_experiment_results = json.load(experiment_results_fn.open())
-                    # if dataset_results_fn.exists():
-                    #     existing_dataset_results = json.load(dataset_results_fn.open())
                     with open(str(experiment_results_fn), 'w') as f:
                         json.dump({**existing_experiment_results, **results}, f)
-                    # with open(str(dataset_results_fn), 'w') as f:
-                    #     json.dump({**existing_dataset_results, **results}, f)
                     break
                 except:
                     time.sleep(1)
@@ -898,9 +810,6 @@ if __name__ == "__main__":
                     seed = seeds[r]
                 succeded = False
                 try_count = 0
-                # while not succeded:
-                #     if try_count > 0:
-                #         seed = np.random.randint(10000)
                 output_dir_base = str(O_path / 'experiments')
                 output_dir, data_fn, aux_fn, info_fn, time_index_fn = create_dataset(dir_path / "RawData" / real_world_dataset_name, real_world_dataset_name, real_world_target_index, output_dir_base, direction=direction, seed = seed, broken_proportion = broken_proportion, broken_length = broken_length)
 
@@ -936,21 +845,6 @@ if __name__ == "__main__":
                         "train_only_period": 0
                     },
                     {
-                        "name": "norm",
-                        "ct": "norm",
-                        "train_only_period": 0
-                    },
-                    {
-                        "name": "normAVG",
-                        "ct": "normAVG",
-                        "train_only_period": 0
-                    },
-                    {
-                        "name": "normSC",
-                        "ct": "normSC",
-                        "train_only_period": 0
-                    },
-                    {
                         "name": "normSCG",
                         "ct": "normSCG",
                         "train_only_period": 0
@@ -980,10 +874,6 @@ if __name__ == "__main__":
                     baselines = [e for e in baselines if e['name'] in args.bcs or e['ct'] in args.bcs]
                 for b in baselines:
                     b['run_options'] = RunOptions(output_dir_str, header, b["name"], False, False, -1 , -1, -1, -1, -1, -1, -1, -1, -1, -1, b["ct"], 0)
-                # bl_lin_ro = RunOptions(output_dir, True, 'lin', False, False, -1 , -1, -1, -1, -1, -1, -1, 'linear')
-                # bl_norm_ro = RunOptions(output_dir, True, 'norm', False, False, -1 , -1, -1, -1, -1, -1, -1, 'norm')
-                # bl_temp_ro = RunOptions(output_dir, True, 'temp', False, False, -1 , -1, -1, -1, -1, -1, -1, 'temporal')
-                # bl_tree_ro = RunOptions(output_dir, True, 'tree', False, False, -1 , -1, -1, -1, -1, -1, -1, 'tree')
 
 
                 stream_files = get_stream_files(output_dir_str)
@@ -1000,11 +890,6 @@ if __name__ == "__main__":
                         results_dump_path = stream_file.parent / f"{b['name']}-results.json"
                         with results_dump_path.open('w') as f:
                             json.dump(r, f)
-                    # fn, mg, info = run_stream_with_options(bl_lin_ro, stream_file, stream_file.parent, load_arff= False, train_only_period = 0)
-                    # extract_results_from_csv(fn, mg, info, stream_file.parent, True)
-                    # run_stream_with_options(bl_norm_ro, stream_file, stream_file.parent, load_arff= False, train_only_period = 0)
-                    # run_stream_with_options(bl_temp_ro, stream_file, stream_file.parent, load_arff= False, train_only_period = 0)
-                    # run_stream_with_options(bl_tree_ro, stream_file, stream_file.parent, load_arff= False, train_only_period = train_only_period)
 
 
                     # Set GridSearch args

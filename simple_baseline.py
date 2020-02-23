@@ -4,11 +4,13 @@ import numpy as np
 import math
 import logging
 import scipy.stats
+from scipy.interpolate import Rbf
 from skmultiflow.utils import get_dimensions, check_random_state
 from skikaprivate.classifiers.FSMClassifier.fsm.systemStats import systemStats
 from sklearn.gaussian_process import GaussianProcessClassifier
 
 gaussian_cache = {}
+avg_distance_cache = None
 def levelize(v, bins):
     # return np.digitize(v, [50, 100, 150, 200])
     # return np.digitize(v, [12, 35.5, 55.5, 150.5, 250.5])
@@ -16,7 +18,7 @@ def levelize(v, bins):
     leveled = np.digitize(v, b)
     return leveled
 
-def OK_interpolation(X, spacial_pattern, bins):
+def OK_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     window_x_GP = []
     window_y = []
     y_vals = set()
@@ -33,12 +35,12 @@ def OK_interpolation(X, spacial_pattern, bins):
     classifier = GaussianProcessClassifier()
     classifier.fit(train_X, window_y)
     return classifier.predict(np.array([spacial_pattern[-1][0], spacial_pattern[-1][1], 0]).reshape(1, -1))[0]
-def temporal_interpolation(X, spacial_pattern, bins):
+def temporal_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     # level = levelize(X[-1], bins)
     level = X[-1]
     logging.debug(f"level: {level}")
     return level
-def linear_interpolation(X, spacial_pattern, bins):
+def linear_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     if spacial_pattern is None:
         logging.debug(f"No spacial pattern so defaulting to avg")
         return linear_interpolation_no_spacial(X, bins)
@@ -60,28 +62,15 @@ def linear_interpolation(X, spacial_pattern, bins):
     logging.debug(f"level: {level}")
     return level
 
-def gaussian_interpolation(X, spacial_pattern, bins):
+def gaussianSCG_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     if spacial_pattern is None:
         logging.debug(f"No spacial pattern so defaulting to avg")
         return linear_interpolation_no_spacial(X, bins)
-    
     X = X[:(len(X) - 1)//2]
-    # spacial_pattern = spacial_pattern[:(len(X) - 1)//2]
-
-    total_distance = sum([x[-1] for x in spacial_pattern[:(len(X) - 1)//2]])
-    avg_distance = total_distance / len(spacial_pattern)
-    if avg_distance in gaussian_cache:
-        distribution = gaussian_cache[avg_distance]
-    else:
-        distribution = scipy.stats.norm(0, avg_distance * avg_distance)
-    logging.debug(f"Total distance: {total_distance}")
-    interpolated_reading = 0
-    weights = distribution.pdf([spacial_pattern[i][-1] for i,feature in enumerate(X)])
-    for i,feature in enumerate(X):
-        # w = scipy.stats.norm.pdf(spacial_pattern[i][-1], 0, avg_distance)
-        # w = distribution.pdf(spacial_pattern[i][-1])
-        w = weights[i]
-        interpolated_reading += w * feature
+    x_locs = [i[0] for i in spacial_pattern[:len(X)]]
+    y_locs = [i[1] for i in spacial_pattern[:len(X)]]
+    interpolator = Rbf(x_locs, y_locs, X, function = 'gaussian')
+    interpolated_reading = interpolator(spacial_pattern[-1][0], spacial_pattern[-1][1])
     logging.debug(f"interpolated_reading: {interpolated_reading}")
     
     level = levelize(interpolated_reading, bins)
@@ -114,6 +103,8 @@ class SimpleBaseline:
         self.x_locs = x_locs
         self.y_loc = y_loc
         self.spacial_pattern = spacial_pattern
+        
+        self.avg_distance_cache = None
         self.bins = bins
         self.system_stats = systemStats()
         self.system_stats.state_control_log.append(
@@ -182,15 +173,32 @@ class SimpleBaseline:
         return_inferrence = []
         if self.classifer_type == 'linear':
             inferrence_func = linear_interpolation
-        if self.classifer_type == 'norm':
-            inferrence_func = gaussian_interpolation
+        if self.classifer_type == 'normSCG':
+            inferrence_func = gaussianSCG_interpolation
         if self.classifer_type == 'temporal':
             inferrence_func = temporal_interpolation
         if self.classifer_type == 'OK':
             inferrence_func = OK_interpolation
             
         for i in range(row_cnt):
-            return_inferrence.append(inferrence_func(np.concatenate([X[i], self.last_seen_label], axis = None), self.spacial_pattern, self.bins))
+            if self.avg_distance_cache is None:
+                distances = []
+                for s1 in self.spacial_pattern[:(len(X[i]) - 1)//2 - 1]:
+                    for s2 in self.spacial_pattern[:(len(X[i]) - 1)//2 - 1]:
+                        if s1 == s2:
+                            continue
+                        s1_x = s1[0]
+                        s1_y = s1[1]
+                        s2_x = s2[0]
+                        s2_y = s2[1]
+                        x_delta = s1_x - s2_x
+                        y_delta = s1_y - s2_y
+                        distance = math.sqrt(math.pow(x_delta, 2) + math.pow(y_delta, 2))
+                        distances.append(distance)
+                avg_distance = sum(distances) / len(distances)
+                max_distance = max(distances)
+                self.avg_distance_cache = avg_distance
+            return_inferrence.append(inferrence_func(np.concatenate([X[i], self.last_seen_label], axis = None), self.spacial_pattern, self.bins, self.avg_distance_cache))
         # print(f"prediction: {return_inferrence}")
         return return_inferrence
 
