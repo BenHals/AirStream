@@ -13,8 +13,9 @@ Under the hypothesis that a classifier will perform similarly given similar cond
 ## Instructions To Run
 
 ### Data Formatting
-1. Each data set should be in a folder inside `RawData`, with the name of the folder being the unique ID of the data set, `dataname`.
- - This folder should contain a csv file named `dataname_full.csv`. The first column in this file should be a datetime, then a column for each sensor (feature) then a column for each auxiliary feature (used for evaluating relationship to weather, not for testing/training or deployment).
+1. Each data set should be in a folder inside `RawData`, with the name of the folder being the unique ID of the data set, `$dataname$`.
+ - This folder should contain a csv file named `$dataname$_full.csv`. The first column in this file should be a datetime, then a column for each sensor (feature) then a column for each auxiliary feature (used for evaluating relationship to weather, not for testing/training or deployment).
  - An example is shown in the `TestData` folder, and a jupyter notebook used to construct the file is given as `process_data_template.ipynb`.
 
-2. Run
+### Running Evaluation
+2. Run `conduct_experiment.py`. Settings shown in code as arguments. Instructions updated soon...
