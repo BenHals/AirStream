@@ -10,7 +10,7 @@ AirStream detects _concept drift_, a change in distribution on incoming data to 
 By matching current stream conditions to past classifiers, AirStream selects the best classifier to use or builds a new one.
 Under the hypothesis that a classifier will perform similarly given similar conditions, this selection provides information on current conditions.
 
-![Air Pollution](Poll_overlay.pdf)
+![Air Pollution](https://github.com/BenHals/AirStream/raw/master/Poll_overlay.pdf)
 
 ## Instructions To Run
 0. Install 
