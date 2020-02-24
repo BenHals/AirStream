@@ -6,7 +6,7 @@ import logging
 import scipy.stats
 from skmultiflow.utils import get_dimensions, check_random_state
 from skmultiflow.meta import AdaptiveRandomForest
-from skikaprivate.classifiers.FSMClassifier.fsm.systemStats import systemStats
+from systemStats import systemStats
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 

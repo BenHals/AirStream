@@ -20,17 +20,14 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from skmultiflow.evaluation.evaluate_prequential import EvaluatePrequential
+from skmultiflow.trees.hoeffding_tree import HoeffdingTree
 from skmultiflow.data.data_stream import DataStream
-from skika.evaluation.inspect_recurrence import InspectPrequential
 from scipy.io import arff
 
-from skikaprivate.classifiers.Simple.simple_baseline import SimpleBaseline
-from skikaprivate.classifiers.Simple.simple_window_baseline import SimpleWindowBaseline
-from skikaprivate.classifiers.Simple.simple_baseline_skmf import SimpleBaselineSKMF
-from skikaprivate.classifiers.FSMClassifier.fsm_classifier import FSMClassifier
-from skikaprivate.classifiers.FSMClassifier.fsm.fsm import State
-from skikaprivate.classifiers.FSMClassifier.adaptiveLearner.tracksplit_hoeffding_tree import TS_HoeffdingTree
-from skikaprivate.Data.csv_result_extraction import log_accuracy_from_df
+from simple_baseline import SimpleBaseline
+from simple_window_baseline import SimpleWindowBaseline
+from simple_baseline_skmf import SimpleBaselineSKMF
+from csv_result_extraction import log_accuracy_from_df
 
 
 import sklearn
@@ -169,7 +166,8 @@ def create_classifier(run_options, supplementary_info, sp_info):
         bins = None if 'bins' not in supplementary_info else supplementary_info['bins']
         classifier = SimpleBaselineSKMF(classifer_type = 'arf', x_locs = [], y_loc = None, spacial_pattern = sp_info, bins = bins)
     else:
-        classifier = DSClassifier(learner=TS_HoeffdingTree,
+        classifier = DSClassifier(
+                                    learner=HoeffdingTree,
                                     window=run_options.window,
                                     alt_test_length = run_options.atl * run_options.atp,
                                     alt_test_period = run_options.atp,
@@ -254,8 +252,8 @@ def run_stream_with_options(run_options, stream_file, parent_dir, load_arff = Fa
     if 'mask' in list(stream_data.columns):
         mask = list(stream_data['mask'])
         stream_data = stream_data.drop('mask', axis = 1)
-    print(stream_data.head())
-    print(mask[:20])
+        print(stream_data.head())
+        print(mask[:20])
     datastream = DataStream(stream_data)
     datastream.prepare_for_use()
 
@@ -273,7 +271,10 @@ def run_stream_with_options(run_options, stream_file, parent_dir, load_arff = Fa
     for ex in tqdm(range(stream_length)):
         
         logging.debug(f"Observation: {ex}")
-        mask_val = mask[ex]
+        if mask is not None:
+            mask_val = mask[ex]
+        else:
+            mask_val = False
 
         if cancelled:
             break
@@ -566,14 +567,14 @@ if __name__ == "__main__":
     parser.add_argument("-nps", action='store_true', help="Unallow Proactive sensitivity")
     parser.add_argument("-cl", nargs="*", type=int, default = [-1], help="Max number of concepts stored at once")
     parser.add_argument("-an", nargs="*", type=int, default = [5], help="Max number of alternatives to check")
-    parser.add_argument("-w", nargs="*", type=int, default = [50], help="Window size for identifying recurring concepts")
+    parser.add_argument("-w", nargs="*", type=int, default = [1500], help="Window size for identifying recurring concepts")
     parser.add_argument("-sdp", nargs="*", type=int, default = [500], help="Standard deviation prior for PS")
     parser.add_argument("-msm", nargs="*", type=float, default = [1.5], help="Max sensitivity multiplier for PS")
     parser.add_argument("-atl", nargs="*", type=float, default = [1], help="Alt Test length")
     parser.add_argument("-atp", nargs="*", type=int, default = [2000], help="Alt Test period")
     parser.add_argument("-bs", nargs="*", type=float, default = [0.05], help="Base sensitivity")
     parser.add_argument("-csd", nargs="*", type=float, default = [0.05], help="BT drift sensitivity")
-    parser.add_argument("-css", nargs="*", type=float, default = [0.05], help="BT sustain sensitivity")
+    parser.add_argument("-css", nargs="*", type=float, default = [0.125], help="BT sustain sensitivity")
     parser.add_argument("-tpw", type=int, default = 0, help="Train period for windowing")
     parser.add_argument("-tp", type=int, default = 0, help="Train period")
     parser.add_argument("-dr", action='store_true', help="Direction")
@@ -882,8 +883,9 @@ if __name__ == "__main__":
                     for b in baselines:
                         try:
                             fn, mg, info = run_stream_with_options(b['run_options'], stream_file, stream_file.parent, load_arff= False, train_only_period = b['train_only_period'])
-                        except:
-                            pass
+                        except Exception as e:
+                            raise e
+                            # pass
                         r = extract_results_from_csv(fn, mg, info, stream_file.parent, True, aux_info, results_timestamps, aux_feature_predictions)
                         b['results'] = r
                         print(baselines)

@@ -10,7 +10,7 @@ from skmultiflow.utils import get_dimensions, check_random_state
 from skmultiflow.meta.adaptive_random_forests import AdaptiveRandomForest
 from skmultiflow.trees.hoeffding_tree import HoeffdingTree
 from skmultiflow.utils import normalize_values_in_dict
-from skikaprivate.classifiers.FSMClassifier.fsm.systemStats import systemStats
+from systemStats import systemStats
 
 def updated_predict_proba(self, X):
         """ Predicts probabilities of all label of the X instance(s)

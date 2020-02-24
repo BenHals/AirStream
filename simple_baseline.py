@@ -6,7 +6,7 @@ import logging
 import scipy.stats
 from scipy.interpolate import Rbf
 from skmultiflow.utils import get_dimensions, check_random_state
-from skikaprivate.classifiers.FSMClassifier.fsm.systemStats import systemStats
+from systemStats import systemStats
 from sklearn.gaussian_process import GaussianProcessClassifier
 
 gaussian_cache = {}

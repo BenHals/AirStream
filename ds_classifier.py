@@ -6,8 +6,7 @@ from copy import deepcopy
 
 from skmultiflow.utils import get_dimensions, check_random_state
 from skmultiflow.drift_detection.adwin import ADWIN
-from skikaprivate.classifiers.FSMClassifier.fsm.fsm import FSM, deepcopy_fast
-from skikaprivate.classifiers.FSMClassifier.fsm.systemStats import systemStats
+from systemStats import systemStats
 import numpy as np
 import scipy.stats
 
@@ -25,10 +24,10 @@ class state:
 class DSClassifier:
     def __init__(self, 
                 suppress=False,
-                concept_limit=10,
+                concept_limit=-1,
                 memory_management='rA',
                 learner=None,
-                window=50,
+                window=1500,
                 sensitivity=0.05,
                 concept_chain=None,
                 optimal_selection=False,
@@ -42,7 +41,7 @@ class DSClassifier:
                 allow_proactive_sensitivity=False,
                 num_alternative_states=5,
                 conf_sensitivity_drift=0.05,
-                conf_sensitivity_sustain=0.05,
+                conf_sensitivity_sustain=0.125,
                 min_proactive_stdev=500,
                 alt_test_length=2000,
                 alt_test_period=2000,

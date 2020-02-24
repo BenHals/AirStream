@@ -2,11 +2,8 @@ import numpy as np
 import pandas as pd
 import os, time
 import pickle
-import seaborn as sns
 import matplotlib.pyplot as plt
-from graphviz import Digraph
 from collections import Counter
-sns.set()
 
 
 
@@ -664,37 +661,37 @@ def log_accuracy_from_df(data, run_name, directory, merge_key, full):
 
     return ret_val
 
-def plot_outerFSM(dataframes, run_names, directory):
-    transitions = {}
-    totals = {}
-    last_concept = None
-    for i, row in dataframes[0].iterrows():
-        concept = row['system_concept']
-        if last_concept is None or concept != last_concept:
-            if not concept in transitions:
-                transitions[concept] = {}
-                totals[concept] = 0
-            if not last_concept is None:
-                if not concept in transitions[last_concept]:
-                    transitions[last_concept][concept] = 0
-                transitions[last_concept][concept] += 1
-                totals[last_concept]+= 1
-            last_concept = concept
-    print(transitions)
+# def plot_outerFSM(dataframes, run_names, directory):
+#     transitions = {}
+#     totals = {}
+#     last_concept = None
+#     for i, row in dataframes[0].iterrows():
+#         concept = row['system_concept']
+#         if last_concept is None or concept != last_concept:
+#             if not concept in transitions:
+#                 transitions[concept] = {}
+#                 totals[concept] = 0
+#             if not last_concept is None:
+#                 if not concept in transitions[last_concept]:
+#                     transitions[last_concept][concept] = 0
+#                 transitions[last_concept][concept] += 1
+#                 totals[last_concept]+= 1
+#             last_concept = concept
+#     print(transitions)
 
-    dot = Digraph(comment="FSM")
-    dot.graph_attr['rankdir'] = 'LR'
-    for node_id in transitions:
-        print(str(node_id))
-        dot.node(str(node_id), str(node_id))
+#     dot = Digraph(comment="FSM")
+#     dot.graph_attr['rankdir'] = 'LR'
+#     for node_id in transitions:
+#         print(str(node_id))
+#         dot.node(str(node_id), str(node_id))
         
 
-    for from_id in transitions:
-        to_ids_counter = transitions[from_id]
-        for to_id in to_ids_counter:
-            dot.edge(str(from_id), str(to_id), str(round(to_ids_counter[to_id] / totals[from_id] * 100) / 100))
+#     for from_id in transitions:
+#         to_ids_counter = transitions[from_id]
+#         for to_id in to_ids_counter:
+#             dot.edge(str(from_id), str(to_id), str(round(to_ids_counter[to_id] / totals[from_id] * 100) / 100))
 
-    dot.render(f'{directory}\{run_names[0]}_FSM.gv', view= False)
+#     dot.render(f'{directory}\{run_names[0]}_FSM.gv', view= False)
 
 def plot_system_acc_from_df(dataframes, run_names, directory):
     final_ordering = []
