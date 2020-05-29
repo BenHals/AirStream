@@ -2,6 +2,7 @@ import time
 import logging
 import pathlib
 from copy import deepcopy
+import subprocess
 
 from ds_classifier import DSClassifier
 from skmultiflow.trees.hoeffding_tree import HoeffdingTree
@@ -118,7 +119,7 @@ logging.basicConfig(level=logging.DEBUG, filename=f"logs/experiment-{time.time()
 options = {
     'generator': 'reverse_tree',
     'difficulty': 1,
-    'gen_seed': 15
+    'gen_seed': 15,
     'seed': 15,
     'positions': [2000, 8000],
     'widths': [1, 5000],
