@@ -1,6 +1,7 @@
 from copy import deepcopy
 import time
 import numpy as np
+import sys
 import math
 import logging
 import scipy.stats
@@ -11,6 +12,25 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 
 gaussian_cache = {}
+def get_size(obj, seen=None):
+        """Recursively finds size of objects"""
+        size = sys.getsizeof(obj)
+        if seen is None:
+            seen = set()
+        obj_id = id(obj)
+        if obj_id in seen:
+            return 0
+        # Important mark as seen *before* entering recursion to gracefully handle
+        # self-referential objects
+        seen.add(obj_id)
+        if isinstance(obj, dict):
+            size += sum([get_size(v, seen) for v in obj.values()])
+            size += sum([get_size(k, seen) for k in obj.keys()])
+        elif hasattr(obj, '__dict__'):
+            size += get_size(obj.__dict__, seen)
+        elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+            size += sum([get_size(i, seen) for i in obj])
+        return size
 def levelize(v):
     # return np.digitize(v, [50, 100, 150, 200])
     return np.digitize(v, [12, 35.5, 55.5, 150.5, 250.5])
@@ -163,7 +183,23 @@ class SimpleWindowBaseline:
             if self.classifer_type == 'tree':
                 self.classifier = DecisionTreeClassifier()
                 self.classifier.fit(self.window_X, self.window_y)
+                # print(self.window_X)
+                # print(self.window_y)
                 print(self.classifier.feature_importances_)
+                print("trained")
+                self.size = get_size(self.classifier) + get_size(self.window_X) + get_size(self.window_y)
+                # self.size = get_size(self.classifier.tree_)
+                print(self.size)
+            if self.classifer_type == 'tree9':
+                self.classifier = DecisionTreeClassifier()
+                self.classifier.fit(self.window_X, self.window_y)
+                # print(self.window_X)
+                # print(self.window_y)
+                print(self.classifier.feature_importances_)
+                print("trained")
+                self.size = get_size(self.classifier) + get_size(self.window_X) + get_size(self.window_y)
+                # self.size = get_size(self.classifier.tree_)
+                print(self.size)
             if self.classifer_type == 'OK':
                 self.classifier = GaussianProcessClassifier(copy_X_train=False)
                 print(self.window_x_GP)
@@ -197,7 +233,7 @@ class SimpleWindowBaseline:
         # Predict before we fit, to detect drifts.
         prediction = self.get_inferrence([X]) if not self.classifier is None else self.last_seen_label
         label = y if not masked else self.get_imputed_label(X)
-        self.window_X.append(np.concatenate([X, label], axis = None))
+        self.window_X.append(np.concatenate([X, self.last_seen_label], axis = None))
         for i,x in enumerate(X):
             if self.spacial_pattern is None:
                 continue

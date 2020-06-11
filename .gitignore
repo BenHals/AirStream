@@ -1,3 +1,8 @@
 logs/*
 experiments/*
 *.pyc
+synthetic_tests
+synthetic_tests_f
+synthetic_tests_O
+synthetic_tests_O2
+synthetic_tests_O - Copy

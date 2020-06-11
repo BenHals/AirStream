@@ -29,21 +29,21 @@ def OK_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
         window_y.append(y)
         y_vals.add(y)
     if len(list(y_vals)) == 1:
-        return list(y_vals)[0]
+        return list(y_vals)[0], GaussianProcessClassifier()
     train_X = np.vstack(window_x_GP)
 
     classifier = GaussianProcessClassifier()
     classifier.fit(train_X, window_y)
-    return classifier.predict(np.array([spacial_pattern[-1][0], spacial_pattern[-1][1], 0]).reshape(1, -1))[0]
+    return classifier.predict(np.array([spacial_pattern[-1][0], spacial_pattern[-1][1], 0]).reshape(1, -1))[0], classifier
 def temporal_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     # level = levelize(X[-1], bins)
     level = X[-1]
     logging.debug(f"level: {level}")
-    return level
+    return level, level
 def linear_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     if spacial_pattern is None:
         logging.debug(f"No spacial pattern so defaulting to avg")
-        return linear_interpolation_no_spacial(X, bins)
+        return linear_interpolation_no_spacial(X, bins), spacial_pattern
     X = X[:(len(X) - 1)//2]
     # spacial_pattern = spacial_pattern[:(len(X) - 1)//2]
     # print([x[-1] for x in spacial_pattern])
@@ -60,12 +60,12 @@ def linear_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     
     level = levelize(interpolated_reading, bins)
     logging.debug(f"level: {level}")
-    return level
+    return level, spacial_pattern
 
 def gaussianSCG_interpolation(X, spacial_pattern, bins, avg_distance_cache = None):
     if spacial_pattern is None:
         logging.debug(f"No spacial pattern so defaulting to avg")
-        return linear_interpolation_no_spacial(X, bins)
+        return linear_interpolation_no_spacial(X, bins), Rbf()
     X = X[:(len(X) - 1)//2]
     x_locs = [i[0] for i in spacial_pattern[:len(X)]]
     y_locs = [i[1] for i in spacial_pattern[:len(X)]]
@@ -75,7 +75,7 @@ def gaussianSCG_interpolation(X, spacial_pattern, bins, avg_distance_cache = Non
     
     level = levelize(interpolated_reading, bins)
     logging.debug(f"level: {level}")
-    return level
+    return level, interpolator
 
 def linear_interpolation_no_spacial(X, bins):
     # First N features are current spacial
@@ -95,7 +95,7 @@ def linear_interpolation_no_spacial(X, bins):
     logging.debug(sum(spacial_readings) / N)
     level = levelize(sum(spacial_readings) / N, bins)
     logging.debug(level)
-    return level
+    return level, level
 
 class SimpleBaseline:
     def __init__(self, classifer_type, x_locs, y_loc, spacial_pattern, bins):
@@ -198,7 +198,9 @@ class SimpleBaseline:
                 avg_distance = sum(distances) / len(distances)
                 max_distance = max(distances)
                 self.avg_distance_cache = avg_distance
-            return_inferrence.append(inferrence_func(np.concatenate([X[i], self.last_seen_label], axis = None), self.spacial_pattern, self.bins, self.avg_distance_cache))
+            interpolated_value, classifier = inferrence_func(np.concatenate([X[i], self.last_seen_label], axis = None), self.spacial_pattern, self.bins, self.avg_distance_cache)
+            self.classifier = classifier
+            return_inferrence.append(interpolated_value)
         # print(f"prediction: {return_inferrence}")
         return return_inferrence
 

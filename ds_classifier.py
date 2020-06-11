@@ -35,7 +35,7 @@ class DSClassifier:
                 concept_limit=-1,
                 memory_management='rA',
                 learner=None,
-                window=25,
+                window=100,
                 sensitivity=0.05,
                 concept_chain=None,
                 optimal_selection=False,
@@ -57,61 +57,107 @@ class DSClassifier:
 
         if learner is None:
             raise ValueError('Need a learner')
-
+        
+        # concept_limit is the maximum number of concepts
+        # which can be stored in the repository
         self.concept_limit = concept_limit
-        self.memory_management = memory_management
-        self.learner = learner
-        self.window_min = window
-        self.window = window
-        self.sensitivity = sensitivity
 
+        # memory_management is the memory management
+        # strategy used.
+        self.memory_management = memory_management
+
+        # learner is the classifier used by each state.
+        # papers use HoeffdingTree from scikit-multiflow
+        self.learner = learner
+
+        # window_min is the minimum size of window used
+        # when a concept drift is detected to select the
+        # new concept.
+        self.window_min = window
+
+        # window is dynamic based on the two detectors
+        self.window = window
+
+        # sensitivity is the sensitivity of the concept
+        # drift detector
+        self.sensitivity = sensitivity
         self.base_sensitivity = sensitivity
         self.max_sensitivity = sensitivity * max_sensitivity_multiplier
         self.TEST_sensitivity = []
         self.current_sensitivity = sensitivity
 
+        # suppress debug info
         self.suppress = suppress
+
+        # optimal knowledge of drift in the stream.
+        # set to None if not known (default)
         self.concept_chain = concept_chain
         self.optimal_selection = optimal_selection
         self.optimal_drift = optimal_drift
+
+        # rand_weights is if a strategy is setting sample
+        # weights for training
         self.rand_weights = poisson > 1
+
+        # poisson is the strength of sample weighting
+        # based on leverage bagging
         self.poisson = poisson
+
+        # merge_similarity is the distance at which similar
+        # concepts are merged
         self.merge_similarity = merge_similarity
+
+        # allow_proactive_sensitivity allows proactive sensitivity
         self.allow_proactive_sensitivity = allow_proactive_sensitivity
 
+        # num_alternative_states is the K parameter controlling
+        # how many inactive states are considered
         self.num_alternative_states = num_alternative_states
+
+        # the thresholds for quick and sustained repair detection
+        # respectively
         self.conf_sensitivity_drift = conf_sensitivity_drift
         self.conf_sensitivity_sustain = conf_sensitivity_sustain
         self.min_proactive_stdev = min_proactive_stdev
+
+        # length and period of repair testing
         self.alt_test_length = alt_test_length
         self.alt_test_period = alt_test_period
 
-
-        self.sensitivity = sensitivity
+        # setup initial drift detectors
         self.detector = make_detector(s = sensitivity)
         self.warn_detector = make_detector(s = self.get_warning_sensitivity(sensitivity))
-
         self.in_warning = False
         self.last_warning_point = 0
+
+        # initialize waiting state. If we don't have enough
+        # data to select the next concept, we wait until we do.
         self.waiting_for_concept_data = False
 
+        # init the current number of states
         self.max_state_id = 0
 
+        # init randomness
         self.random_state = None
         self._random_state = check_random_state(self.random_state)
 
+        
         self.ex = -1
         self.classes = None
         self._train_weight_seen_by_model = 0
+
+        # set the similarity measure to determine the similarity
+        # of repository concepts to current stream.
         self.similarity_measure = similarity_measure
         
+        # init backtracking data
         self.restore_state = None
         self.restore_state_set_point = 0
         self.restore_point_type = None
         self.allow_backtrack = allow_backtrack
         self.active_state_is_new = True
 
-        # Exposed 
+        # init data which is exposed to evaluators 
         self.found_change = False
         self.num_states = 1
         self.active_state = self.max_state_id
@@ -120,34 +166,38 @@ class DSClassifier:
         self.states = []
         self.set_restore_state = None
         self.load_restore_state = None
-
-        self.alternative_states_difference_confidence = {}
         self.signal_difference_backtrack = False
         self.signal_confidence_backtrack = False
+        self.alternative_states_difference_confidence = {}
 
+        # track the last predicted label
         self.last_label = 0
 
+        # set up repository
         self.state_repository = {}
         self.testing_state_repository = {}
         self.testing_state_stats = {}
+        self.testing_state_main_comparison = {'perf_window': deque(), 'perf_sum': 0}
         init_id = self.max_state_id
         self.max_state_id += 1
         init_state = state(init_id, self.learner())
         self.state_repository[init_id] = init_state
         self.active_state_id = init_id
 
+        # set up performance history
         self.recent_accuracy = []
         self.recent_non_masked_history = deque()
+        self.recent_non_masked_history_sum = 0
         self.history = []
         self.testing_state_history = []
         self.testing_state_performance = {}
 
-        self.inactive_test_min = 15
+        self.inactive_test_min = 100
         self.inactive_test_grace = 200
 
 
     def get_warning_sensitivity(self, s):
-        return s * 10
+        return s * 2
 
     def get_active_state(self):
         return self.state_repository[self.active_state_id]
@@ -233,6 +283,7 @@ class DSClassifier:
         # correctly_classified from the systems point of view.
         correctly_classifies = prediction == label
 
+        # Save the information on the sample for performance calculations
         self.history.append(
             {
                 "temporal_X": temporal_X,
@@ -246,16 +297,32 @@ class DSClassifier:
             }
         )
 
+        # init defaults for trackers
         backtrack_target = None
         found_change = False
         current_sensitivity = self.get_current_sensitivity()
-        if not masked:
-            self.recent_non_masked_history.append(self.history[-1])
-            if len(self.recent_non_masked_history) > 500:
-                self.recent_non_masked_history.popleft()
-            if len(self.recent_non_masked_history) > self.inactive_test_min - 10:
-                self.recent_accuracy.append(sum([1 if e['p'] == e['label'] else 0 for e in self.recent_non_masked_history]) / len(self.recent_non_masked_history))
 
+        # The following section uses the label, so should only run if 
+        # we have good data, i.e. is not masked.
+        if not masked:
+
+            # maintain a recent history of good data
+            # recent_non_masked_history is a window of observations
+            # since the current active state was set.
+            self.recent_non_masked_history.append(self.history[-1])
+            self.recent_non_masked_history_sum += 1 if self.history[-1]['p'] == self.history[-1]['label'] else 0
+            if len(self.recent_non_masked_history) > 500:
+                removed_element = self.recent_non_masked_history.popleft()
+                self.recent_non_masked_history_sum -= 1 if removed_element['p'] == removed_element['label'] else 0
+
+            # recent_accuracy is a list of recent window accuracies over the seen
+            # good data. Does not include the first 10 of these as the number of samples
+            # is too small, and is from when the current active window was set.
+            if len(self.recent_non_masked_history) > self.inactive_test_min - 10:
+                # self.recent_accuracy.append(sum([1 if e['p'] == e['label'] else 0 for e in self.recent_non_masked_history]) / len(self.recent_non_masked_history))
+                self.recent_accuracy.append(self.recent_non_masked_history_sum / len(self.recent_non_masked_history))
+
+            # Fit the classifier of the current state.
             self.get_active_state().classifier.partial_fit(
                 np.asarray([temporal_X]),
                 np.asarray([label]),
@@ -263,25 +330,34 @@ class DSClassifier:
             )
             self.get_active_state().seen += 1
 
+            # if backtracking is allowed and
+            # we are within alt_test_length of the repair testing starting
+            # we test inactive states. This sets backtrack_target to be 
+            # the best inactive state if we are confident it is better than the
+            # main state, other wise None if the main state is best.
             if self.allow_backtrack:
                 # Testing is expensive, so we only test for a length of time
                 # after each restore point is placed.
-                print(len(self.testing_state_repository))
-                print(self.ex - self.restore_state_set_point)
+                logging.debug(len(self.testing_state_repository))
+                logging.debug(self.ex - self.restore_state_set_point)
                 if (self.ex - self.restore_state_set_point) < self.alt_test_length:
-                    print("testing")
+                    logging.debug("testing")
                     backtrack_target = self.test_inactive_states(temporal_X, label, sample_weight, prediction)
-                    print(self.testing_state_performance)
+                    logging.debug(self.testing_state_performance)
             else:
                 backtrack_target = None
 
 
+            # Add error to detectors
             self.detector.delta = current_sensitivity
             self.warn_detector.delta = self.get_warning_sensitivity(current_sensitivity)
-
             self.detector.add_element(int(correctly_classifies))
             self.warn_detector.add_element(int(correctly_classifies))
 
+            # If the warning detector fires we record the position
+            # and reset. We take the most recent warning as the
+            # start of out window, assuming this warning period
+            # contains elements of the new state.
             if self.warn_detector.detected_change():
                 self.in_warning = True
                 self.last_warning_point = self.ex
@@ -291,13 +367,40 @@ class DSClassifier:
                 self.last_warning_point = max(0, self.ex - 100)
             self.window = max(self.window_min, self.ex - self.last_warning_point)
 
+            # If the main state trigers, or we held off on changing due to lack of data,
+            # trigger a change
             found_change = self.detector.detected_change() or self.waiting_for_concept_data
         
         if found_change:
+            logging.debug("Found Change")
             self.in_warning = False
+
+            # Find the inactive models most suitable for the current stream. Also return a shadow model 
+            # trained on the warning period.
+            # If none of these have high accuracy, hold off the adaptation until we have the data.
             ranked_alternatives, use_shadow, shadow_model, can_find_good_model = self.rank_inactive_models_for_suitability()
             logging.debug(f"Candidates: {ranked_alternatives}")
             if can_find_good_model:
+
+                # We may want to backtrack the active state to make sure it did not ingest
+                # samples from a different concept.
+                # If we have a restore state of the active state, and we are not transitioning to
+                # the same state, we check how many observations would be deleted by this.
+                # if this is less than some proportion (a third here) we take the tradeoff and backtrack
+                # to the restore state model.
+                restore_state = self.restore_state
+                if restore_state and restore_state.id == self.active_state_id and ((len(ranked_alternatives) > 0 and ranked_alternatives[-1] != self.active_state_id) or use_shadow):
+                    logging.debug(f"Restore point set at {self.restore_state_set_point}")
+                    time_delta = self.ex - self.restore_state_set_point
+                    logging.debug(f"{time_delta}")
+                    proportion_deleted_by_backtrack = time_delta / self.get_active_state().seen
+                    logging.debug(f"{proportion_deleted_by_backtrack}")
+                    if proportion_deleted_by_backtrack < 0.33:
+                        logging.debug(f"Restoring {restore_state.id}")
+                        self.state_repository[restore_state.id] = deepcopy(self.restore_state)
+
+                # If we determined the shadow is the best model, we mark it as a new state,
+                # copy the model trained on the warning period across and set as the active state
                 if use_shadow:
                     logging.debug(f"Transition to shadow")
                     self.active_state_is_new = True
@@ -306,28 +409,40 @@ class DSClassifier:
                     self.state_repository[shadow_id] = shadow_state
                     self.active_state_id = shadow_id
                 else:
+                    # Otherwise we just set the found state to be active
                     logging.debug(f"Transition to {ranked_alternatives[-1]}")
                     self.active_state_is_new = False
                     transition_target_id = ranked_alternatives[-1]
                     self.active_state_id = transition_target_id
-                self.waiting_for_concept_data = False
 
+                # We reset drift detection as the new performance will not 
+                # be the same, and reset history for the new state.
+                self.waiting_for_concept_data = False
                 self.detector = make_detector(s = current_sensitivity)
                 self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity))
                 self.recent_non_masked_history = deque()
+                self.recent_non_masked_history_sum = 0
                 self.recent_accuracy = []
 
-
+                # Set the restore point to test for false positive drift
                 self.place_restorepoint(ranked_alternatives, self.learner(), 'transition')
+
+                # Test the newly made inactive states.
                 self.test_inactive_states(temporal_X, label, sample_weight, prediction)
             else:
+                # If we did not have enough data to find any good concepts to 
+                # transition to, wait until we do.
                 self.waiting_for_concept_data = True
+
         elif backtrack_target is not None:
+            # We look for a backtrack if no change is detected.
+            # First, we reset the active state model to its saved state.
             restore_state = self.restore_state
             logging.debug(f"Restoring {restore_state.id}")
-            self.state_repository[restore_state.id] = self.restore_state
-            # print(backtrack_target)
-            # print(self.testing_state_repository)
+            self.state_repository[restore_state.id] = deepcopy(self.restore_state)
+
+            # If the backtrack is to a new model, we make the new state for it
+            # otherwise we set it to be the indicated stored model.
             backtrack_to_new_model = backtrack_target == -1
             if backtrack_to_new_model:
                 self.active_state_is_new = True
@@ -336,25 +451,33 @@ class DSClassifier:
                 self.state_repository[new_id] = target_state
             else:
                 self.active_state_is_new = False
-                # target_state = self.testing_state_repository[backtrack_target]
                 target_state = self.state_repository[backtrack_target]
             self.active_state_id = target_state.id
+
+            # We reset data, including testing state performance
             self.detector = make_detector(s = current_sensitivity)
             self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity))
             self.recent_non_masked_history = deque()
+            self.recent_non_masked_history_sum = 0
             self.recent_accuracy = []
             self.testing_state_history = []
             self.testing_state_repository = {}
             self.testing_state_stats = {}
+            self.testing_state_main_comparison = {'perf_window': deque(), 'perf_sum': 0}
             self.reset_alternative_states = True
+
+            # We place a new restore point by first finding models which are a good fit.
             ranked_alternatives, use_shadow, shadow_model, can_find_good_model = self.rank_inactive_models_for_suitability()
             if can_find_good_model:
                 self.place_restorepoint(ranked_alternatives, shadow_model, 'transition')
                 self.test_inactive_states(temporal_X, label, sample_weight, prediction)
             self.testing_state_history = []
-        else:
+        elif self.allow_backtrack:
+            # If there is no change, or backtrack, we test to see if a periodic restore point test
+            # should begin.
             should_place_restore_point = self.should_place_restore_point()
             if should_place_restore_point:
+                self.window = self.window_min
                 ranked_alternatives, use_shadow, shadow_model, can_find_good_model = self.rank_inactive_models_for_suitability()
                 if can_find_good_model:
                     self.place_restorepoint(ranked_alternatives, shadow_model, 'transition')
@@ -362,7 +485,7 @@ class DSClassifier:
 
 
 
-        # Set exposed info
+        # Set exposed info for evaluation.
         self.active_state = self.active_state_id
         self.found_change = found_change
         self.states = self.state_repository
@@ -469,6 +592,8 @@ class DSClassifier:
 
 
     def place_restorepoint(self, model_ids_to_test, shadow_model, restore_point_type):
+        if not self.allow_backtrack:
+            return
         # Take a copy of the current state
         logging.debug("Placing Restore point")
         logging.debug(f"Ranked Alternatives: {model_ids_to_test}")
@@ -479,6 +604,7 @@ class DSClassifier:
         self.testing_state_history = []
         self.testing_state_repository = {}
         self.testing_state_stats = {}
+        self.testing_state_main_comparison = {'perf_window': deque(), 'perf_sum': 0}
         self.reset_alternative_states = True
 
         if len(model_ids_to_test) > 0:
@@ -486,11 +612,11 @@ class DSClassifier:
                 if state_id == self.active_state_id:
                     continue
                 self.testing_state_repository[state_id] = deepcopy(self.state_repository[state_id])
-                self.testing_state_stats[state_id] = {'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0}
+                self.testing_state_stats[state_id] = {'perf': [], 'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
         
         # if not self.active_state_is_new:
         self.testing_state_repository[-1] = state(-1, deepcopy(shadow_model))
-        self.testing_state_stats[-1] = {'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0}
+        self.testing_state_stats[-1] = {'perf': [],'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
         logging.debug(self.testing_state_repository)
         logging.debug(self.testing_state_stats)
         
@@ -501,13 +627,43 @@ class DSClassifier:
         i.e. restoring to a known good point. For not just periodic.
         """
         # Check time since last restore point
+        if not self.allow_backtrack:
+            return False
         above_wait_period = (self.ex - self.restore_state_set_point) > self.alt_test_period
 
         return above_wait_period
 
     def test_inactive_states(self, temporal_X, label, sample_weight, p):
+        """ Given the current observation, we test the inactive states in the 
+        testing repository. This repository contains copies of the K most similar
+        states to the current stream.
+
+        """
+        
+        # We shouldn't do anything is testing is not allowed.
+        if not self.allow_backtrack:
+            return
+
         backtrack_states = []
         self.testing_state_performance = {}
+
+        is_correct = 1 if p == label else 0
+        self.testing_state_main_comparison['perf_window'].append(is_correct)
+        self.testing_state_main_comparison['perf_sum'] += is_correct
+
+        # for each state in the testing repository, we get the prediction it would
+        # have made for the current observation. This is added to a history of inactive
+        # state performance tagged with its ID.
+        # We compare the performance of the state to the active state for all observations
+        # since testing started.
+        # We consider a normal distribution around the main state performance, and perform 
+        # a t-test to determine the likelyhood of the inactive states performance being the
+        # same or lower than the main state. We collect the p-value, if the average p-value
+        # drops below 0.05 we have evidence that the inactive state is drawn from a higher
+        # distribution and initiate a backtrack.
+        # We also perform drift detection on the difference in performance, a sudden change
+        # here when the performance of the inactive state is higher and increasing indicates
+        # it is better suited so a quick change backtrack is initiated.
         for inactive_state_id in self.testing_state_repository:
             logging.debug(f"Testing alt state {inactive_state_id}")
             inactive_state = self.testing_state_repository[inactive_state_id]
@@ -525,16 +681,29 @@ class DSClassifier:
                     "ex": self.ex
                 }
             )
+            is_correct = 1 if state_prediction == label else 0
+            self.testing_state_stats[inactive_state_id]['perf_window'].append(is_correct)
+            inactive_state_seen = len(self.testing_state_stats[inactive_state_id]['perf_window'])
+            self.testing_state_stats[inactive_state_id]['perf_sum'] += is_correct
 
-            test_history = [e for e in self.testing_state_history if e['active_model'] == inactive_state_id and not e['masked']]
-            logging.debug(f"Seen {len(test_history)} samples")
-
-            state_accuracy = sum([1 if e['p'] == e['label'] else 0 for e in test_history]) / len(test_history)
-            main_state_accuracy = sum([1 if e['main_state_p'] == e['label'] else 0 for e in test_history]) / len(test_history)
-            if len(test_history) < self.inactive_test_min:
+            # Currently consider whole history, a sliding window might be better.
+            # test_history = [e for e in self.testing_state_history if e['active_model'] == inactive_state_id and not e['masked']]
+            # logging.debug(f"Seen {len(test_history)} samples")
+            logging.debug(f"Seen {inactive_state_seen} samples")
+            # state_accuracy = sum([1 if e['p'] == e['label'] else 0 for e in test_history]) / len(test_history)
+            state_accuracy = self.testing_state_stats[inactive_state_id]['perf_sum'] / inactive_state_seen
+            self.testing_state_stats[inactive_state_id]['perf'].append(state_accuracy)
+            # main_state_accuracy = sum([1 if e['main_state_p'] == e['label'] else 0 for e in test_history]) / len(test_history)
+            main_state_accuracy = self.testing_state_main_comparison['perf_sum'] / inactive_state_seen
+            # if len(test_history) < self.inactive_test_min:
+            if inactive_state_seen < self.inactive_test_min:
                 self.testing_state_performance[inactive_state_id] = (inactive_state_id, state_prediction == label, inactive_state, state_accuracy, main_state_accuracy, len(self.testing_state_history))
                 continue
             self.testing_state_performance[inactive_state_id] = (inactive_state_id, state_prediction == label, inactive_state, state_accuracy, main_state_accuracy, len(self.testing_state_history))
+
+            # if the inactive state is the shadow state, we fit it.
+            # We do not test against the shadow state if the active state
+            # is too new, as this is just two unstable states against eachother.
             if inactive_state_id == -1:
                 inactive_state.classifier.partial_fit(
                     np.asarray([temporal_X]),
@@ -543,43 +712,88 @@ class DSClassifier:
                 )
                 if self.get_active_state().seen < 750:
                     continue
-
+            
+            # Consider the kappa measure instead of the raw distance.
+            # Since accuracy is capped at one, this scales the difference
+            # by the distance to one, so a 5% increase at 90% is like a
+            # 25% increase at 50%.
             kappa_measure = (state_accuracy - main_state_accuracy) / (1 - main_state_accuracy) if main_state_accuracy < 1 else 0
 
             logging.debug(self.recent_accuracy[-100:])
             logging.debug(np.std(self.recent_accuracy[-100:]))
-            # main_state_recent_acc_std = max(np.std(self.recent_accuracy[-100:]), 0.001)
-            main_state_recent_acc_std = np.std(self.recent_accuracy[-100:])
+
+            # Get the standard deviation as the max of the stdev of main state performance
+            # and of inactive state performance, both scaled in the same way as the difference.
+            # main_state_recent_acc_std = np.std(self.recent_accuracy[-100:])
+            # test_state_recent_acc_std = np.std(self.testing_state_stats[inactive_state_id]['perf'])
             scaled_main_state_recent_acc_std = np.std(self.recent_accuracy[-100:]) / (1-main_state_accuracy) if main_state_accuracy < 1 else 0.0001
+            scaled_test_state_recent_acc_std = np.std(self.testing_state_stats[inactive_state_id]['perf']) / (1-state_accuracy) if state_accuracy < 1 else 0.0001
+
+            std_val = max(scaled_test_state_recent_acc_std, scaled_main_state_recent_acc_std)
 
             logging.debug(f"testing state acc: {state_accuracy}")
             logging.debug(f"main state acc: {main_state_accuracy}")
-            logging.debug(f"main state std: {main_state_recent_acc_std}")
+            # logging.debug(f"main state std: {main_state_recent_acc_std}")
+            logging.debug(f"std val: {std_val}")
 
 
             # probability_drawn_from_main_state = (1 - scipy.stats.norm(loc = main_state_accuracy, scale = main_state_recent_acc_std).cdf(state_accuracy))
             # probability_drawn_from_main_state = (1 - scipy.stats.norm(loc = main_state_accuracy, scale = scaled_main_state_recent_acc_std).cdf(state_accuracy))
-            probability_drawn_from_main_state = (1 - scipy.stats.norm(loc = 0, scale = scaled_main_state_recent_acc_std ).cdf(kappa_measure))
+
+            # The probability is the inverse of the cdf of the normal distribution given by that stdev.
+            probability_drawn_from_main_state = (1 - scipy.stats.norm(loc = 0, scale = std_val ).cdf(kappa_measure))
             logging.debug(f"probability_drawn_from_main_state: {probability_drawn_from_main_state}")
+
+            # store the sum of the probability and number seen to calculate the average
             self.testing_state_stats[inactive_state_id]["sustained_confidence_sum"] += probability_drawn_from_main_state
             self.testing_state_stats[inactive_state_id]["seen"] += 1
             logging.debug(f"sustained_confidence_sum: {self.testing_state_stats[inactive_state_id]['sustained_confidence_sum']}")
             logging.debug(f"seen: {self.testing_state_stats[inactive_state_id]['seen']}")
             avg_sustained_confidence = self.testing_state_stats[inactive_state_id]["sustained_confidence_sum"] / self.testing_state_stats[inactive_state_id]["seen"]
             logging.debug(f"avg_sustained_confidence: {avg_sustained_confidence}")
-
-            self.testing_state_stats[inactive_state_id]["quick_change_detector"].add_element(main_state_accuracy - state_accuracy)
-
+            
+            # Test the kappa with a drift detector
+            self.testing_state_stats[inactive_state_id]["quick_change_detector"].add_element(state_accuracy - main_state_accuracy)
             self.testing_state_stats[inactive_state_id]["found_quick_change"] = (self.testing_state_stats[inactive_state_id]["quick_change_detector"].detected_change() and state_accuracy > main_state_accuracy) or self.testing_state_stats[inactive_state_id]["found_quick_change"]
             logging.debug(f"Quick change detected: {self.testing_state_stats[inactive_state_id]['found_quick_change']}")
             
-            if len(test_history) > self.inactive_test_grace:
+            # Give a grace period for triggers as initial performance is unstable
+            # if len(test_history) > self.inactive_test_grace:
+            if inactive_state_seen > self.inactive_test_grace + self.inactive_test_min:
+                t = 0.85
+                
                 if avg_sustained_confidence < self.conf_sensitivity_sustain:
-                    logging.debug("Conf signal")
-                    backtrack_states.append((inactive_state_id, state_accuracy))
+                    logging.debug(f"Conf signal for state {inactive_state_id}")
+                    min_sample_to_look_at = self.testing_state_history[0]['ex']
+                    state_predictions = [e for e in self.history if e["active_model"] == inactive_state_id and not e["masked"] and e['ex'] > min_sample_to_look_at]
+                    state_predictions = state_predictions[-round(len(state_predictions) / 3):]
+                    recent_acc, recent_kt, recent_km, recent_ks = get_stats([(e['p'], e['label']) for e in state_predictions])
+                    logging.debug(f"Recent performance: Acc {recent_acc}, kt: {recent_kt}, km: {recent_km}, ks: {recent_ks}")
+
+                    # We test if kt on the current stream is above a threshold of kt on last use.
+                    # We also test if the current model has some similarity to the new shadow model.
+                    # If neither, we filter
+                    if state_accuracy > recent_acc * t:
+                        backtrack_states.append((inactive_state_id, state_accuracy))
+                    else:
+                        logging.debug(f"But acc was too different to normal so was dropped")
                 if self.testing_state_stats[inactive_state_id]["found_quick_change"] and state_accuracy > main_state_accuracy:
-                    logging.debug("Drift signal")
-                    backtrack_states.append((inactive_state_id, state_accuracy))
+                    logging.debug(f"Drift signal for state {inactive_state_id}")
+                    min_sample_to_look_at = self.testing_state_history[0]['ex']
+                    state_predictions = [e for e in self.history if e["active_model"] == inactive_state_id and not e["masked"] and e['ex'] > min_sample_to_look_at]
+                    state_predictions = state_predictions[-round(len(state_predictions) / 3):]
+                    recent_acc, recent_kt, recent_km, recent_ks = get_stats([(e['p'], e['label']) for e in state_predictions])
+                    logging.debug(f"Recent performance: Acc {recent_acc}, kt: {recent_kt}, km: {recent_km}, ks: {recent_ks}")
+
+                    # We test if kt on the current stream is above a threshold of kt on last use.
+                    # We also test if the current model has some similarity to the new shadow model.
+                    # If neither, we filter
+                    if state_accuracy > recent_acc * t:
+                        backtrack_states.append((inactive_state_id, state_accuracy))
+                    else:
+                        logging.debug(f"But acc was too different to normal so was dropped")
+        
+        # Return the backtrack state with highest accuracy
         if len(backtrack_states) > 0:
             logging.debug("Backtrack signalled")
             backtrack_states.sort(key = lambda x: x[1])
@@ -588,9 +802,10 @@ class DSClassifier:
             return backtrack_states[-1][0]
 
         return None
-
     def get_current_sensitivity(self):
         return self.base_sensitivity
+
+
 
 def get_stats(results):
     predictions = [x[0] for x in results]

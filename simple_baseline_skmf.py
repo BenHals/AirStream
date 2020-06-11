@@ -95,6 +95,7 @@ class SimpleBaselineSKMF:
         self.last_label = 0
 
         self.active_state = 0
+        self.active_state_id = 0
         
     def reset(self):
         pass
@@ -153,6 +154,10 @@ class SimpleBaselineSKMF:
         # print(np.concatenate([X, self.last_label], axis = None).reshape(1, -1))
         # print([label])
         self.classifier.partial_fit(np.concatenate([X, self.last_label], axis = None).reshape(1, -1), [label])
+        try:
+            self.active_state_id = self.classifier.active_state_id
+        except:
+            pass
         self.last_label = label
         self.active_state = self.get_active_state()
         correctly_classifies = prediction == label
