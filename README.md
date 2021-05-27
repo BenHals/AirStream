@@ -1,4 +1,8 @@
 # AirStream
+
+This work is published in *Machine Learning* as:
+Halstead, B., Koh, Y.S., Riddle, P. et al. Analyzing and repairing concept drift adaptation in data stream classification. Mach Learn (2021). https://doi.org/10.1007/s10994-021-05993-w
+
 A data stream system to make predictions in non-stationary conditions and adapt to changes in unknown/unobserved features.
 AirStream was specifically designed for inferring air quality level from recent readings from surrounding sensors.
 This process is affected by changing conditions such as wind direction, wind speed, pollution source behavior changes and seasonality.
@@ -49,3 +53,13 @@ Under the hypothesis that a classifier will perform similarly given similar cond
  - AirStream active state at any point is given by `AirStream.active_state`. The value immediately prior to any prediction is the ID of the classifier used to make that prediction.
 
 
+### Citing:
+Please use the following citation:
+`@article{halstead2021analyzing,
+  title={Analyzing and repairing concept drift adaptation in data stream classification},
+  author={Halstead, Ben and Koh, Yun Sing and Riddle, Patricia and Pears, Russel and Pechenizkiy, Mykola and Bifet, Albert and Olivares, Gustavo and Coulson, Guy},
+  journal={Machine Learning},
+  pages={1--35},
+  year={2021},
+  publisher={Springer}
+}`
