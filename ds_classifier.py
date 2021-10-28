@@ -7,14 +7,29 @@ from skmultiflow.trees.hoeffding_tree import HoeffdingTree
 
 from skmultiflow.utils import get_dimensions, check_random_state
 from skmultiflow.drift_detection.adwin import ADWIN
+from skmultiflow.drift_detection import DDM
+from skmultiflow.drift_detection import EDDM
+from skmultiflow.drift_detection import HDDM_A
+from skmultiflow.drift_detection import HDDM_W
 from systemStats import systemStats
 import numpy as np
 import scipy.stats
 
 
-def make_detector(warn=False, s=1e-5):
+def make_detector(warn=False, s=1e-5, drift_detector=None):
     sensitivity = s * 2 if warn else s
-    return ADWIN(delta=sensitivity)
+    if drift_detector == "adwin":
+        return ADWIN(delta=sensitivity)
+    if drift_detector == "ddm":
+        return DDM(out_control_level=2 if warn else 3)
+    if drift_detector == "eddm":
+        return EDDM()
+    if drift_detector == "hddm_a":
+        return HDDM_A(drift_confidence=0.005 if warn else 0.001)
+    if drift_detector == "hddm_w":
+        return HDDM_W(drift_confidence=0.005 if warn else 0.001)
+    else:
+        raise ValueError("no drift detector passed")
 
 
 class state:
@@ -53,7 +68,8 @@ class DSClassifier:
                 min_proactive_stdev=500,
                 alt_test_length=2000,
                 alt_test_period=2000,
-                max_sensitivity_multiplier=1.5):
+                max_sensitivity_multiplier=1.5,
+                drift_detector="adwin"):
 
         if learner is None:
             raise ValueError('Need a learner')
@@ -69,6 +85,8 @@ class DSClassifier:
         # learner is the classifier used by each state.
         # papers use HoeffdingTree from scikit-multiflow
         self.learner = learner
+
+        self.drift_detector = drift_detector
 
         # window_min is the minimum size of window used
         # when a concept drift is detected to select the
@@ -125,8 +143,8 @@ class DSClassifier:
         self.alt_test_period = alt_test_period
 
         # setup initial drift detectors
-        self.detector = make_detector(s = sensitivity)
-        self.warn_detector = make_detector(s = self.get_warning_sensitivity(sensitivity))
+        self.detector = make_detector(s = sensitivity, drift_detector=self.drift_detector)
+        self.warn_detector = make_detector(s = self.get_warning_sensitivity(sensitivity), drift_detector=self.drift_detector)
         self.in_warning = False
         self.last_warning_point = 0
 
@@ -156,6 +174,7 @@ class DSClassifier:
         self.restore_point_type = None
         self.allow_backtrack = allow_backtrack
         self.active_state_is_new = True
+        self.restore_history_amend = None
 
         # init data which is exposed to evaluators 
         self.found_change = False
@@ -272,6 +291,7 @@ class DSClassifier:
 
     def _partial_fit(self, X, y, sample_weight, masked = False):
         self.reset_alternative_states = False
+        self.restore_history_amend = None
         logging.debug(f"Partial fit on X: {X}, y:{y}, masked: {masked}, using state {self.active_state_id}")
 
         temporal_X = self.get_temporal_x(X)
@@ -361,7 +381,7 @@ class DSClassifier:
             if self.warn_detector.detected_change():
                 self.in_warning = True
                 self.last_warning_point = self.ex
-                self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity))
+                self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity), drift_detector=self.drift_detector)
             
             if not self.in_warning:
                 self.last_warning_point = max(0, self.ex - 100)
@@ -418,8 +438,8 @@ class DSClassifier:
                 # We reset drift detection as the new performance will not 
                 # be the same, and reset history for the new state.
                 self.waiting_for_concept_data = False
-                self.detector = make_detector(s = current_sensitivity)
-                self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity))
+                self.detector = make_detector(s = current_sensitivity, drift_detector=self.drift_detector)
+                self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity), drift_detector=self.drift_detector)
                 self.recent_non_masked_history = deque()
                 self.recent_non_masked_history_sum = 0
                 self.recent_accuracy = []
@@ -441,6 +461,7 @@ class DSClassifier:
             logging.debug(f"Restoring {restore_state.id}")
             self.state_repository[restore_state.id] = deepcopy(self.restore_state)
 
+
             # If the backtrack is to a new model, we make the new state for it
             # otherwise we set it to be the indicated stored model.
             backtrack_to_new_model = backtrack_target == -1
@@ -452,11 +473,19 @@ class DSClassifier:
             else:
                 self.active_state_is_new = False
                 target_state = self.state_repository[backtrack_target]
+    
+            # We indicate we would like history amended, from start to end,
+            # changing model_from into model_to
+            self.restore_history_amend = {'start': self.restore_state_set_point,
+                                        'end': self.ex,
+                                        'model_from': self.active_state_id,
+                                        'model_to': target_state.id}
+                                
             self.active_state_id = target_state.id
 
             # We reset data, including testing state performance
-            self.detector = make_detector(s = current_sensitivity)
-            self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity))
+            self.detector = make_detector(s = current_sensitivity, drift_detector=self.drift_detector)
+            self.warn_detector = make_detector(s = self.get_warning_sensitivity(current_sensitivity), drift_detector=self.drift_detector)
             self.recent_non_masked_history = deque()
             self.recent_non_masked_history_sum = 0
             self.recent_accuracy = []
@@ -612,11 +641,11 @@ class DSClassifier:
                 if state_id == self.active_state_id:
                     continue
                 self.testing_state_repository[state_id] = deepcopy(self.state_repository[state_id])
-                self.testing_state_stats[state_id] = {'perf': [], 'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
+                self.testing_state_stats[state_id] = {'perf': [], 'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift, drift_detector=self.drift_detector), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
         
         # if not self.active_state_is_new:
         self.testing_state_repository[-1] = state(-1, deepcopy(shadow_model))
-        self.testing_state_stats[-1] = {'perf': [],'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
+        self.testing_state_stats[-1] = {'perf': [],'sustained_confidence_sum': 0, 'quick_change_detector': make_detector(s = self.conf_sensitivity_drift, drift_detector=self.drift_detector), "found_quick_change": False, 'seen': 0, 'perf_window': deque(), 'perf_sum': 0}
         logging.debug(self.testing_state_repository)
         logging.debug(self.testing_state_stats)
         

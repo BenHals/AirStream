@@ -294,18 +294,23 @@ def run_stream_with_options(run_options, stream_file, parent_dir, load_arff = Fa
             row = [ex, statistics.sliding_window_accuracy, 1 if correctly_classified else 0, p, y[0], statistics.get_accuracy()]
             model_info = model_info_getter.get_exposed_info_at_sample(ex)
             load_restore_state = model_info['load_restore_state'] if model_info['load_restore_state'] is not None else [None, None]
-            row = [*row, model_info['active_state'], model_info['found_change'], model_info['set_restore_state'], f"{load_restore_state[0]}-{load_restore_state[1]}", model_info['signal_confidence_backtrack'], model_info['signal_difference_backtrack'], model_info['current_sensitivity'], mask_val]
+            row = [*row, model_info['active_state'], model_info['active_state'], model_info['found_change'], model_info['set_restore_state'], f"{load_restore_state[0]}-{load_restore_state[1]}", model_info['signal_confidence_backtrack'], model_info['signal_difference_backtrack'], model_info['current_sensitivity'], mask_val]
+            if hasattr(classifier, 'restore_history_amend'):
+                if classifier.restore_history_amend is not None:
+                    for ai in range(classifier.restore_history_amend['start'], classifier.restore_history_amend['end']):
+                        if held_rows[ai][7] == classifier.restore_history_amend['model_from']:
+                            held_rows[ai][7] = classifier.restore_history_amend['model_to']
             logging.debug(row)
             held_rows.append(row)
 
         classifier.partial_fit(X, masked_y, masked = mask_val)
 
-        start_write = time.process_time()
-        if len(held_rows) > 50000:
-            write_to_file(results_filename, run_options, held_rows)
-            held_rows = []
-        end_write = time.process_time()
-        write_time += (end_write - start_write)
+        # start_write = time.process_time()
+        # if len(held_rows) > 50000:
+        #     write_to_file(results_filename, run_options, held_rows)
+        #     held_rows = []
+        # end_write = time.process_time()
+        # write_time += (end_write - start_write)
     end_time = time.process_time()
     time_taken = end_time - start_time - write_time
     write_to_file(results_filename, run_options, held_rows)
@@ -462,7 +467,7 @@ def link(results, aux_info, results_timestamps, aux_feature_predictions, parent)
 def extract_results_from_csv(file, merge_file, info_file, parent, readall, aux_info, results_timestamps, aux_feature_predictions):
     version = 1
     name_stem = pathlib.Path(file).stem
-    row_names = ['example', 'sliding_window_accuracy','is_correct','p','y','overall_accuracy','system_concept','change_detected','set_restore_state','_load_restore_state','signal_confidence_backtrack','signal_difference_backtrack','current_sensitivity', 'mask']
+    row_names = ['example', 'sliding_window_accuracy','is_correct','p','y','overall_accuracy','system_concept_noamend', 'system_concept', 'change_detected','set_restore_state','_load_restore_state','signal_confidence_backtrack','signal_difference_backtrack','current_sensitivity', 'mask']
     store_filename_all = f"{parent / name_stem}_result_{version}_True.pickle"
     store_filename_cropped = f"{parent / name_stem}_result_{version}_False.pickle"
     print(f"attempting to read {store_filename_all}")
@@ -739,6 +744,7 @@ if __name__ == "__main__":
     parser.add_argument("--cpus", type=int, default = 1, help="Number of CPUs to use")
     parser.add_argument("--algname", default = "sys", help="Base alg name")
     parser.add_argument("--singlemp", action='store_true', help="bypass mp for 1 processor")
+    parser.add_argument("--btonly", action='store_true', help="run backtrack version only")
     # parser.add_argument("-lf", default=f"experiment-{time.time()}.log", type=str, help="The name of the file to log to")
 
     args = parser.parse_args()
@@ -759,6 +765,7 @@ if __name__ == "__main__":
     broken_length = args.bl
     bl_only = args.bco
     remake_spacial_pattern = args.rsp
+    bt_only = args.btonly
     if args.dbl:
         logging.getLogger().setLevel(logging.DEBUG)
     # Params for fsm_classifier opposite of commandline
@@ -839,13 +846,15 @@ if __name__ == "__main__":
             gridsearch_args = ['cl', 'an', 'w','sdp', 'msm', 'atl', 'atp', 'bs', 'csd', 'css']
             gridsearch_arg_combos = product(*[vars(args)[x] for x in gridsearch_args])
             for gsac in gridsearch_arg_combos:
-                file_baseline_options.append({**mp_option, 'algorithm': f'{args.algname}_bt', 'is_baseline': False, 'run_opts': gsac, 'run_args': gridsearch_args})
-            gridsearch_args = ['cl', 'an', 'w','sdp', 'msm', 'atl', 'atp', 'bs', 'csd', 'css']
-            non_bt_args = {'cl': args.cl, 'an': [5], 'w': args.w, 'sdp': [500], 'msm': [1.5], 'atl': [1], 'atp': [2000], 'bs': args.bs, 'csd': [0.005], 'css': [0.1]}
-            product_list = [non_bt_args[x] for x in gridsearch_args]
-            gridsearch_arg_combos = product(*product_list)
-            for gsac in gridsearch_arg_combos:
-                file_baseline_options.append({**mp_option, 'algorithm': f'{args.algname}_nobt', 'is_baseline': False, 'run_opts': gsac, 'run_args': gridsearch_args})
+                file_baseline_options.append({**mp_option, 'algorithm': f'{args.algname}_bt_amend', 'is_baseline': False, 'run_opts': gsac, 'run_args': gridsearch_args})
+            
+            if not bt_only:
+                gridsearch_args = ['cl', 'an', 'w','sdp', 'msm', 'atl', 'atp', 'bs', 'csd', 'css']
+                non_bt_args = {'cl': args.cl, 'an': [5], 'w': args.w, 'sdp': [500], 'msm': [1.5], 'atl': [1], 'atp': [2000], 'bs': args.bs, 'csd': [0.005], 'css': [0.1]}
+                product_list = [non_bt_args[x] for x in gridsearch_args]
+                gridsearch_arg_combos = product(*product_list)
+                for gsac in gridsearch_arg_combos:
+                    file_baseline_options.append({**mp_option, 'algorithm': f'{args.algname}_nobt', 'is_baseline': False, 'run_opts': gsac, 'run_args': gridsearch_args})
 
         if args.singlemp:
             results = []

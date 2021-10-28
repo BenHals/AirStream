@@ -1,0 +1,27 @@
+@relation data
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute c numeric
+@attribute mask {0,1}
+@attribute y {[False  True]}

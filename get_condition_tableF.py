@@ -243,7 +243,12 @@ data_name = "BMSClean"
 #%%
 data_name = "WINDSIM"
 experiment_directory = pathlib.Path("H:/PhDTest/NECTARDATA/synthetic") / data_name
-
+data_name = "RangioraClean"
+experiment_directory = pathlib.Path("../RepairResearch/ICDM/ReturnScaleFin/experiments") / data_name
+experiment_directory = experiment_directory.resolve()
+target_index = -1
+target_seed = -1
+ut = False
 print(experiment_directory)
 #%%
 parser = argparse.ArgumentParser()
@@ -263,8 +268,9 @@ data_name = args.rd
 target_index = args.ti
 target_seed = args.seed
 feature_set = args.fs
+ut = args.ut
 # data_name = "BMS"
-origin_path = pathlib.Path.cwd() if args.o == 'cwd' else pathlib.Path(args.o)
+origin_path = pathlib.Path.cwd() if args.o == 'cwd' else pathlib.Path(args.o).resolve()
 
 experiment_directory = origin_path / args.rdr / data_name
 if target_index >= 0:
@@ -276,7 +282,7 @@ data_name = args.dn
 
 #%%
 all_files = experiment_directory.glob('**/*-results.json')
-if args.ut:
+if ut:
     data_files = experiment_directory.glob('**/dataset_target_results.json')
     res = {}
     for data_f in data_files:
@@ -329,13 +335,18 @@ else:
         try:
             options_str = f"{str(data_f)[:-13]}_run_options.txt"
             key = json.load(pathlib.Path(options_str).open())
-        except:
-            options_str = f"{str(data_f).split('.')[0]}_run_options.txt"
+        except Exception as e:
+            continue
+            print(e)
+            print(str(data_f).split('.')[0])
+            # options_str = f"{str(data_f).split('.')[0]}_run_options.txt"
+            options_str = data_f.parent / f"{str(data_f.stem).split('-results')[0]}_run_options.txt"
             key = json.load(pathlib.Path(options_str).open())
-        index_names = key.keys()
+        index_names = list(key.keys())[:19]
         print(k)
-        formatted_results[tuple(key.values())] = {**k}
-        pointer = formatted_results[tuple(key.values())]
+        print(key.values())
+        formatted_results[tuple(list(key.values())[:19])] = {**k}
+        pointer = formatted_results[tuple(list(key.values())[:19])]
         pointer_keys = list(pointer.keys())
         for fk in pointer_keys:
             if type(pointer[fk]) is dict:
@@ -369,6 +380,7 @@ if 'link-WD_4-model_score' in test_df:
 # # print(level_counts)
 # levels = set(list(range(max(level_counts))))
 failed = set()
+feature_set = 'rang'
 levels = [0, 1, 2, 3, 4, 5]
 if feature_set == "synth":
     levels = [0, 1]
@@ -390,10 +402,16 @@ top_result_path_f1_score = None
 top_result_path = None
 # for result_path in picked_results_files:
 for result_path in tqdm(results_files):
-    print(result_path)
+    # print(result_path)
     if data_name in str(result_path.stem) or 'full_link' in str(result_path.stem) or 'drift_info' in str(result_path.stem) or 'stream' in str(result_path.stem) or 'aux' in str(result_path.stem):
         continue
     
+    if 'ds1_bt' in str(result_path) and (not ('ds1_bt_amend' in str(result_path))):
+        continue
+
+    if (not ('ds1' in str(result_path))) and (not 'sys' in str(result_path)):
+        continue
+
     rwf = result_path.parent.parent.parent.stem
     seed = int(result_path.parent.stem)
     try:
@@ -408,7 +426,11 @@ for result_path in tqdm(results_files):
     # if df_info['target_sensor'] != "102":
     #     continue
     run_options = result_path.parent / f"{result_path.stem}_run_options.txt"
-    run_options = json.load(run_options.open())
+    try:
+        run_options = json.load(run_options.open())
+    except:
+        print(result_path)
+        continue
     results_json_path = result_path.parent / f"{result_path.stem}-results.json"
     try:
         results_from_json = json.load(results_json_path.open())
@@ -494,9 +516,9 @@ for result_path in tqdm(results_files):
         state_and_features = np.c_[features, states]
         # print(state_and_features.shape)
         
-        feature_model = sklearn.ensemble.RandomForestClassifier(n_estimators=10,n_jobs=-1,max_depth=15)
-        state_model = sklearn.ensemble.RandomForestClassifier(n_estimators=10)
-        statefeature_model = sklearn.ensemble.RandomForestClassifier(n_estimators=10,n_jobs=-1,max_depth=15)
+        feature_model = sklearn.ensemble.RandomForestClassifier(n_estimators=3,n_jobs=-1,max_depth=15)
+        state_model = sklearn.ensemble.RandomForestClassifier(n_estimators=3)
+        statefeature_model = sklearn.ensemble.RandomForestClassifier(n_estimators=3,n_jobs=-1,max_depth=15)
         dummy = sklearn.dummy.DummyClassifier(strategy = "prior")
 
         average_reuse_purity, concept_purity = get_concept_accuracy_from_df(pd.DataFrame.from_dict({'system_concept': states, 'ground_truth_concept': prediction_target}))
@@ -571,6 +593,10 @@ print(list(df.columns))
 kappa_df = df
 
 #%%
+options_path = pathlib.Path('G:\My Drive\UniMine\Uni\PhD\RepairResearch\ICDM\ReturnScaleFin\experiments\RangioraClean\\10\\1473') / "ds1_bt_amend-cl_-1-an_5-w_500-sdp_500-msm_1#5-atl_1-atp_2000-bs_0#05-csd_0#2-css_0#2-True-False-0_run_options.txt"
+with options_path.open('r') as f:
+    options = json.load(f)
+    index_names = list(options.keys())
 kappa_index = df.set_index(list(index_names)).drop('feature_set', axis = 1)
 
 merged = results.join(kappa_index, rsuffix='_right')
